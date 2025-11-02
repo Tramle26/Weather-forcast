@@ -17,6 +17,98 @@
       <div id="weather-data" style="display: none;"></div>
     </section>
   </main>
+
   <script src="script.js"></script>
+
+  <section id="ai-chat">
+    <h2>Ask the AI (beta)</h2>
+    <div id="chat-log"
+      style="max-height:260px; overflow:auto; padding:12px; background:#fff; border-radius:8px; border:1px solid #ddd; margin-bottom:10px;">
+    </div>
+
+    <div style="display:flex; gap:8px;">
+      <input id="chat-input" type="text" placeholder="Ask anything..."
+        style="flex:1; padding:10px; border:1px solid #ccc; border-radius:6px;" />
+      <button id="chat-send"
+        style="padding:10px 16px; border:1px solid #ccc; border-radius:6px; background:#4b8; color:#fff;">Send</button>
+    </div>
+
+    <small style="display:block; margin-top:8px; color:#555;">
+      Runs locally in your browser using WebLLM (no data leaves your device).
+    </small>
+  </section>
+
+  <script type="module">
+    import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+
+    (async () => {
+      // 1️⃣ Create the model engine
+      const engine = await webllm.CreateWebWorkerMLCEngine(
+        new Worker("https://esm.run/@mlc-ai/web-llm/dist/worker.js", { type: "module" }),
+        { model: "Qwen2.5-0.5B-Instruct-q4f16_1-MLC" },
+        (p) => console.log("Loading:", p)
+      );
+
+      // 2️⃣ DOM elements
+      const $log = document.getElementById("chat-log");
+      const $input = document.getElementById("chat-input");
+      const $send = document.getElementById("chat-send");
+
+      // 3️⃣ Add messages to chat
+      function addMsg(role, text) {
+        const row = document.createElement("div");
+        row.style.margin = "6px 0";
+        row.innerHTML = `<strong>${role}:</strong> ${text}`;
+        $log.appendChild(row);
+        $log.scrollTop = $log.scrollHeight;
+      }
+
+      // 4️⃣ Handle asking the AI
+      async function ask(prompt) {
+        addMsg("You", prompt);
+        $input.value = "";
+        let systemPrompt = "";
+  if (window.currentWeather) {
+    const w = window.currentWeather;
+    const city = w.name || "unknown city";
+    const tempC = Math.round(w.main.temp - 273.15);
+    const desc = w.weather?.[0]?.description || "unknown conditions";
+    systemPrompt = `
+      Current weather data for ${city}:
+      - Temperature: ${tempC}°C
+      - Description: ${desc}
+    `;
+  }
+
+  // Combine the system context + user question
+  const messages = [
+    { role: "system", content: systemPrompt || "You are an assistant helping with weather questions." },
+    { role: "user", content: prompt },
+  ];
+
+  let reply = "";
+  for await (const chunk of await engine.chat.completions.create({
+    messages: messages,
+    stream: true,
+  })) {
+    if (chunk.choices?.[0]?.delta?.content) {
+      reply += chunk.choices[0].delta.content;
+    }
+  }
+
+  addMsg("AI", reply.trim());
+}
+
+      // 5️⃣ Event listeners
+      $send.addEventListener("click", () => {
+        const text = $input.value.trim();
+        if (text) ask(text);
+      });
+
+      $input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $send.click();
+      });
+    })();
+  </script>
 </body>
 </html>
